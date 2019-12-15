@@ -77,7 +77,7 @@ typedef struct ThreadPoolInterface {
     int (*pfAddThreadWithLock)(ThreadPool* pstPool, int threadNum);
 } ThreadPoolInterface;
 
-ThreadPoolInterface g_stThreadPoolInterface;
+ThreadPoolInterface g_stIfTPool;
 
 Task* TaskQueue_NewTask(TaskQueue* pstQueue, void* (*pfExecute)(void* pvArg), void* pvArg);
 TaskQueue* TaskQueue_New(int maxTaskNum, pthread_mutex_t* pstLock);
@@ -92,7 +92,7 @@ void* ThreadPool_Admin(void* pvPool);
 ThreadPool* ThreadPool_New(int minThreadNum, int maxThreadNum, int maxTaskQueueLen);
 int ThreadPool_Delete(ThreadPool* pstPool);
 int ThreadPool_AddTask(ThreadPool* pstPool, void* (*pfExecute)(void* pvArg), void* pvArg);
-int ThreadPool_AddTaskWithLOck(ThreadPool* pstPool, void* (*pfExecute)(void* pvArg), void* pvArg);
+int ThreadPool_AddTaskWithLock(ThreadPool* pstPool, void* (*pfExecute)(void* pvArg), void* pvArg);
 int ThreadPool_Start(ThreadPool* pstPool);
 int ThreadPool_Stop(ThreadPool* pstPool);
 int ThreadPool_Shutdown(ThreadPool* pstPool);

@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -15,12 +16,12 @@
 #include "../user/user.h"
 #include "../log/log.h"
 
-#define SERVER_LOG "./server_log"
+#define SERVER_LOGFILE "./server_log"
 #define SERVER_IP_LEN   16
 #define SERVER_NAME_LEN 64
 #define SERVER_REQUEST_METHOD_NUM 8
 #define SERVER_LOG(message) do { \
-    LOG_WRITE(SERVER_LOG, message) \
+    LOG_WRITE(SERVER_LOGFILE, message); \
 } while (0)
 
 typedef enum SERVER_ENUM {
@@ -43,7 +44,6 @@ ListInterface* g_pstIfUserList;
 ThreadPoolInterface* g_pstIfTPool;
 MessageInterface* g_pstIfMessage;
 
-typedef int (*RequestMethod)(Server* pstServer, char* pcMessage);
 typedef struct Server {
     int fd;
     List* pstUserList;
@@ -51,6 +51,7 @@ typedef struct Server {
     pthread_mutex_t* pstLock;
     int (*pfMessageFilter)(char* pcMessage);
 } Server;
+typedef int (*RequestMethod)(Server* pstServer, char* pcMessage);
 RequestMethod g_pfRequestMethod[SERVER_REQUEST_METHOD_NUM];
 /* memory */
 Server* Server_New();

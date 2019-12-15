@@ -1,8 +1,8 @@
 #include "list.h"
-ListInterface g_stListInterface = {
+ListInterface g_stIfList = {
     List_New,
-    List_Delete,
     List_RegisterObject,
+    List_Delete,
     List_Search,
     List_GetFront,
     List_PushBack,
@@ -117,7 +117,7 @@ Node *List_Search(const List *pstList, void *pvInstance)
 }
 
 /* get */
-Node* List_GetFront(const List pstList)
+Node* List_GetFront(List* pstList)
 {
 	if (pstList == NULL || pstList->pstHead == NULL) {
 		LIST_MESSAGE("empty pointer");

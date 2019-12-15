@@ -48,7 +48,7 @@ typedef struct ListInterface {
             int (*pfObject_Read)(FILE* pstFile, void* pvInstance));
     int (*pfDelete)(List *pstList);
     Node* (*pfSearch)(const List *pstList, void *pvInstance);
-    Node* (*pfGetFront)(const List pstList);
+    Node* (*pfGetFront)(List* pstList);
     int (*pfPushBack)(List *pstList, void* pvInstance);
     int (*pfPopBack)(List *pstList);
     int (*pfPushFront)(List *pstList, void* pvInstance);
@@ -64,7 +64,7 @@ typedef struct ListInterface {
     int (*pfLoad)(List *pstList, const char* pcFileName);
 } ListInterface;
 
-ListInterface g_stListInterface;
+ListInterface g_stIfList;
 
 /* new List */
 List* List_New();
@@ -80,7 +80,7 @@ int List_Delete(List *pstList);
 /* search */
 Node* List_Search(const List *pstList, void *pvInstance);
 /* get */
-Node* List_GetFront(const List pstList);
+Node* List_GetFront(List* pstList);
 /* push back */
 int List_PushBack(List *pstList, void* pvInstance);
 /* pop back */

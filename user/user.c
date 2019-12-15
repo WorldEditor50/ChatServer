@@ -14,8 +14,8 @@ User* User_New(int fd, int port, int state, int stat, char* pcIpAddr, char* pcNa
     pstUser->state = state;
     pstUser->stat = stat;
     pstUser->isRegistered = 0;
-    strcpy_s(pstUser->acIpAddr, USER_IP_LEN, pcIpAddr, strlen(pcIpAddr));
-    strcpy_s(pstUser->pcName, USER_NAME_LEN, pcName, strlen(pcName));
+    strcpy(pstUser->acIpAddr, pcIpAddr);
+    strcpy(pstUser->acName, pcName);
     return pstUser;
 }
 
@@ -27,7 +27,7 @@ int User_Delete(User* pstUser)
 
 int User_ToString(User* pstUser, char* pcString, int len)
 {
-    if (len > USER_MAX_BUFFER_LEN) {
+    if (len > USER_MAXBUFFERLEN) {
         return USER_SIZE_ERR;
     }
     if (pcString == NULL) {
@@ -52,34 +52,33 @@ int User_Parse(User* pstUser, char* pcString)
     }
     char* p1 = NULL;
     char* p2 = NULL;
-    char acPort[32] = {0};
     /* name */
     p1 = strstr(pcString, "name:");
     if (p1 == NULL) {
         return USER_NULL;
     }
-    p2 = strtok(p1, ',');
-    if (p1 == NULL) {
+    p2 = strtok(p1, ",");
+    if (p2 == NULL) {
         return USER_NULL;
     }
-    strcpy_s(pstUser->acName, USER_NAME_LEN, p1, strlen(p2));
+    strcpy(pstUser->acName, p2);
     /* ip */
     p1 = strstr(pcString, "ip:");
     if (p1 == NULL) {
         return USER_NULL;
     }
-    p2 = strtok(p1, ',');
-    if (p1 == NULL) {
+    p2 = strtok(p1, ",");
+    if (p2 == NULL) {
         return USER_NULL;
     }
-    strcpy_s(pstUser->acIpAddr, USER_IP_LEN, p2, strlen(p2));
+    strcpy(pstUser->acIpAddr, p2);
     /* port */
     p1 = strstr(pcString, "port:");
     if (p1 == NULL) {
         return USER_NULL;
     }
-    p2 = strtok(p1, ',');
-    if (p1 == NULL) {
+    p2 = strtok(p1, ",");
+    if (p2 == NULL) {
         return USER_NULL;
     }
     pstUser->port = atoi(p2);
@@ -102,9 +101,9 @@ int User_Write(FILE* pstFile, User* pstUser)
     if (pstFile == NULL) {
         return USER_NO_FILE;
     }
-    char acBuffer[USER_MAX_BUFFER_LEN] = {0};
+    char acBuffer[USER_MAXBUFFERLEN] = {0};
     int ret;
-    ret = User_ToString(pstUser, acBuffer);
+    ret = User_ToString(pstUser, acBuffer, strlen(acBuffer));
     if (ret != USER_OK) {
         return ret;
     }
@@ -117,9 +116,9 @@ int User_Read(FILE* pstFile, User* pstUser)
     if (pstFile == NULL) {
         return USER_NO_FILE;
     }
-    char acBuffer[USER_MAX_BUFFER_LEN] = {0};
+    char acBuffer[USER_MAXBUFFERLEN] = {0};
     int ret;
-    fgets(acBuffer, USER_MAX_BUFFER_LEN, pstFile);
+    fgets(acBuffer, USER_MAXBUFFERLEN, pstFile);
     if (strlen(acBuffer) < 0) {
         return USER_NOT_FOUND;
     }
@@ -144,7 +143,7 @@ int User_DeleteAdapter(void* pvInstance)
     return User_Delete(pstUser);
 }
 
-int User_CompareAapter(void* pvInstance1, void* pvInstance2)
+int User_CompareAdapter(void* pvInstance1, void* pvInstance2)
 {
     if (pvInstance1 == NULL || pvInstance2 == NULL) {
         return USER_IP_LEN;
@@ -161,11 +160,11 @@ int User_CompareAapter(void* pvInstance1, void* pvInstance2)
 int User_WriteAdapter(FILE* pstFile, void* pvInstance)
 {
     User* pstUser = (User*)pvInstance;
-    return User_Write(pstUser);
+    return User_Write(pstFile, pstUser);
 }
 
 int User_ReadAdapter(FILE* pstFile, void* pvInstance)
 {
     User* pstUser = (User*)pvInstance;
-    return User_Read(pstUser);
+    return User_Read(pstFile, pstUser);
 }

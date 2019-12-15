@@ -1,6 +1,6 @@
 #include "threadpool.h"
 
-ThreadPoolInterface g_stThreadPoolInterface = {
+ThreadPoolInterface g_stIfTPool = {
     ThreadPool_New,
     ThreadPool_Delete,
     ThreadPool_AddTask,

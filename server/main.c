@@ -9,15 +9,15 @@ int main()
     Server* pstServer = NULL;
     pstServer = Server_New();
     if (pstServer == NULL) {
-        Log_Write(SERVER_LOG, "fail to create server");
+        SERVER_LOG("fail to create server");
         return 0;
     }
     ret = Server_TcpListen(pstServer, 8020);
     if (ret != SERVER_OK) {
-        Log_Write(SERVER_LOG, "fail to listen");
+        SERVER_LOG("fail to listen");
     }
     Server_Run(pstServer);
     Server_Shutdown(pstServer);
-    Sever_Delete(pstSever);
+    Server_Delete(pstServer);
 	return 0;
 }

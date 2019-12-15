@@ -1,2 +1,8 @@
+CC=gcc
+TARGET=client
+CFLAG= -g -Wall
+LIBS += ../log/log.c
+LIBS += ../message/message.c
+LIBS += -lpthread
 all:
-	gcc -o client main.c client.c ../log/log.c ../message/message.c -lpthread -g -Wall
+	$(CC) -o $(TARGET) main.c client.c $(LIBS) $(CFLAG)
