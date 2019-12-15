@@ -1,0 +1,2 @@
+
+file : test.c  function : main  line : 16  message : hello log
