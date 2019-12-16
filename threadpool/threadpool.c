@@ -429,9 +429,13 @@ void* ThreadPool_Working(void* pvPool)
         }
         /* get task */
         Task* pstTask = TaskQueue_GetTask(pstPool->pstTaskQueue, &pstPool->state);
+        pthread_mutex_unlock(&pstPool->stLock);
         /* execute task */
         if (pstTask != NULL && pstTask->pfExecute != NULL) {
             pstTask->pfExecute(pstTask->pvArg);
+        }
+        pthread_mutex_lock(&pstPool->stLock);
+        if (pstTask != NULL) {
             TaskQueue_Recycle(pstPool->pstTaskQueue, pstTask);
         }
         /* descrese thread when pool is not busy */

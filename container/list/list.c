@@ -78,7 +78,7 @@ int List_RegisterObject(List* pstList,
 /* delete */
 int List_Delete(List *pstList) 
 {
-	if (pstList == NULL || pstList->pstHead == NULL) {
+	if (pstList == NULL) {
 		LIST_MESSAGE("empty pointer");
 		return LIST_NULL;
 	}

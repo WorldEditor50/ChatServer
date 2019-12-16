@@ -41,6 +41,7 @@ typedef enum CLIENT_ENUM {
 
 typedef struct Client {
     int fd;
+    int port;
     char acName[CLIENT_NAME_LEN];
     char state;
     pthread_mutex_t stLock;

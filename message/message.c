@@ -6,9 +6,10 @@ const char* g_pcMessageType[MESSAGE_TYPE_NUM] = {
     "LOGOUT",
     "KICKOUT",
     "BANTALK",
-    "APPPYFORADMINISTRATOR",
+    "ADMIN",
     "REFLECT",
-    "REGISTER"
+    "REGISTER",
+    "SHUTDOWN"
 };
 
 MessageInterface g_stIfMessage = {
@@ -94,11 +95,13 @@ int Message_GetString(char* pcMessage, char* pcField, char* pcString)
     }
     char* pcBegin = NULL;
     char* pcStr = NULL;
-    pcBegin = strstr(pcMessage, pcField);
+    char acTmp[MESSAGE_MAX_LEN];
+    strcpy(acTmp, pcMessage);
+    pcBegin = strstr(acTmp, pcField);
     if (pcBegin == NULL) {
         return MESSAGE_NOT_FOUND;
     }
-    pcStr = strtok(pcBegin, ",");
+    pcStr = strtok(pcBegin + strlen(pcField), ",");
     if (pcStr == NULL) {
         return MESSAGE_NOT_FOUND;
     }
@@ -114,11 +117,13 @@ int Message_GetInt(char* pcMessage, char* pcField)
     char* pcBegin = NULL;
     char* pcInt = NULL;
     int num = 0;
-    pcBegin = strstr(pcMessage, pcField);
+    char acTmp[MESSAGE_MAX_LEN];
+    strcpy(acTmp, pcMessage);
+    pcBegin = strstr(acTmp, pcField);
     if (pcBegin == NULL) {
         return -1;
     }
-    pcInt = strtok(pcBegin, ",");
+    pcInt = strtok(pcBegin + strlen(pcField), ",");
     if (pcInt == NULL) {
         return -1;
     }

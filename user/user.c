@@ -61,7 +61,7 @@ int User_Parse(User* pstUser, char* pcString)
     if (p2 == NULL) {
         return USER_NULL;
     }
-    strcpy(pstUser->acName, p2);
+    strcpy(pstUser->acName, p2 + strlen("name:"));
     /* ip */
     p1 = strstr(pcString, "ip:");
     if (p1 == NULL) {
@@ -71,7 +71,7 @@ int User_Parse(User* pstUser, char* pcString)
     if (p2 == NULL) {
         return USER_NULL;
     }
-    strcpy(pstUser->acIpAddr, p2);
+    strcpy(pstUser->acIpAddr, p2 + strlen("ip:"));
     /* port */
     p1 = strstr(pcString, "port:");
     if (p1 == NULL) {
@@ -81,13 +81,13 @@ int User_Parse(User* pstUser, char* pcString)
     if (p2 == NULL) {
         return USER_NULL;
     }
-    pstUser->port = atoi(p2);
+    pstUser->port = atoi(p2 + strlen("port:"));
     /* status */
     p1 = strstr(pcString, "status:");
     if (p1 == NULL) {
         return USER_NULL;
     }
-    pstUser->stat = atoi(p1);
+    pstUser->stat = atoi(p1 + strlen("status:"));
     return USER_OK;
 }
 
@@ -146,7 +146,7 @@ int User_DeleteAdapter(void* pvInstance)
 int User_CompareAdapter(void* pvInstance1, void* pvInstance2)
 {
     if (pvInstance1 == NULL || pvInstance2 == NULL) {
-        return USER_IP_LEN;
+        return USER_ADDRSTRLEN;
     }
     User* pstUser1 = (User*)pvInstance1;
     User* pstUser2 = (User*)pvInstance2;

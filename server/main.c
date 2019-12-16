@@ -12,7 +12,7 @@ int main()
         SERVER_LOG("fail to create server");
         return 0;
     }
-    ret = Server_TcpListen(pstServer, 8020);
+    ret = Server_TcpListen(pstServer, 8022);
     if (ret != SERVER_OK) {
         SERVER_LOG("fail to listen");
     }

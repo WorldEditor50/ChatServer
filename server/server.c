@@ -4,23 +4,18 @@ ListInterface* g_pstIfUserList = &g_stIfList;
 ThreadPoolInterface* g_pstIfTPool = &g_stIfTPool;
 MessageInterface* g_pstIfMessage = &g_stIfMessage;
 
-RequestMethod g_pfRequestMethod[SERVER_REQUEST_METHOD_NUM] = {
-    Server_Transfer,
-    Server_Broadcast,
-    Server_GetAllUser,
-    Server_Logout,
-    Server_KickOut,
-    Server_BanTalk,
-    Server_ApplyForAdministrator,
-    Server_Reflect
+RequestMethod g_pfRequestMethod[REQUEST_METHOD_NUM] = {
+    Request_Transfer,
+    Request_Broadcast,
+    Request_GetAllUser,
+    Request_Logout,
+    Request_KickOut,
+    Request_BanTalk,
+    Request_ApplyForAdministrator,
+    Request_Reflect,
+    Request_Register,
+    Request_Shutdown
 };
-char g_bTimeOutFlag = 0;
-
-void Server_SetTimeOut(int sigNum)
-{
-    g_bTimeOutFlag = 1;
-    return;
-}
 
 User* Server_SearchUserByName(List* pstList, char* pcName)
 {
@@ -32,11 +27,11 @@ User* Server_SearchUserByName(List* pstList, char* pcName)
     while (pstNode != NULL) {
         pstUser = (User*)pstNode->pvInstance;
         if (strcmp(pstUser->acName, pcName) == 0) {
-            break;
+            return pstUser;
         }
         pstNode = pstNode->pstNext;
     }
-    return pstUser; 
+    return NULL; 
 }
 
 int Server_SearchUserByFd(List* pstList, int fd)
@@ -56,9 +51,63 @@ int Server_SearchUserByFd(List* pstList, int fd)
     return SERVER_NOT_FOUND;
 }
 
+User* Server_SearchUser(List* pstUserList, char* pcIpAddr, int port)
+{   
+    if (pstUserList == NULL || pcIpAddr == NULL) {
+        return NULL;
+    }
+    User* pstUser = NULL;
+    Node *pstNode = pstUserList->pstHead;
+    while (pstNode != NULL) {
+        pstUser = (User*)pstNode->pvInstance;
+        if (pstUser->port == port && strcmp(pstUser->acIpAddr, pcIpAddr) == 0) {
+            return pstUser;
+        }
+        pstNode = pstNode->pstNext;
+    }
+    return NULL;
+}
+
+User* Server_SearchSrcUser(Server* pstServer, char* pcMessage)
+{
+    int ret;
+    char acName[USER_NAMELEN];
+    /* get user name */
+    ret = g_pstIfMessage->pfGetSrcName(pcMessage, acName);
+    if (ret != SERVER_OK) {
+        return NULL;
+    }
+    if (strlen(acName) > USER_NAMELEN) {
+        return NULL;
+    }
+    /* search user */
+    return Server_SearchUserByName(pstServer->pstUserList, acName);
+}
+
+User* Server_SearchDstUser(Server* pstServer, char* pcMessage)
+{
+    int ret;
+    char acName[USER_NAMELEN];
+    /* get user name */
+    ret = g_pstIfMessage->pfGetDstName(pcMessage, acName);
+    if (ret != SERVER_OK) {
+        return NULL;
+    }
+    if (strlen(acName) > USER_NAMELEN) {
+        return NULL;
+    }
+    /* search user */
+    return Server_SearchUserByName(pstServer->pstUserList, acName);
+}
+
 /* memory */
 Server* Server_New()
 {
+    /* check interface */
+    if (g_pstIfUserList == NULL || g_pstIfTPool == NULL ||
+            g_pstIfMessage == NULL) {
+        return NULL;
+    }
     /* init memory */
     Server* pstServer = NULL;
     do {
@@ -89,6 +138,7 @@ Server* Server_New()
         pstServer->fd = -1;
         pstServer->pstLock = &(pstServer->pstTPool->stLock);
         pstServer->pfMessageFilter = NULL;
+        pstServer->state = SERVER_RUNNING;
         return pstServer;
     } while (0);
     Server_Delete(pstServer);
@@ -104,7 +154,7 @@ int Server_Delete(Server* pstServer)
             pstServer->pstUserList != NULL) {
         g_pstIfUserList->pfDelete(pstServer->pstUserList);
     }
-    if (g_pstIfTPool != NULL &&
+    if (g_pstIfTPool != NULL && 
             pstServer->pstTPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstTPool);
     }
@@ -120,8 +170,6 @@ int Server_Init(Server* pstServer)
 
 int Server_Shutdown(Server* pstServer)
 {
-    /* shutdown thread pool */
-    g_pstIfTPool->pfShutdown(pstServer->pstTPool);
     /* close all fd */
     User* pstUser = NULL;
     Node *pstNode = pstServer->pstUserList->pstHead;
@@ -130,6 +178,9 @@ int Server_Shutdown(Server* pstServer)
         close(pstUser->fd);
         pstNode = pstNode->pstNext;
     }
+    printf("%s\n", "calling pool shutdown");
+    /* shutdown thread pool */
+    g_pstIfTPool->pfShutdown(pstServer->pstTPool);
     return SERVER_OK;
 }
 
@@ -164,20 +215,6 @@ int Server_DetectUser(Server* pstServer)
 
     return SERVER_OK;
 }
-User* Server_SearchUser(List* pstUserList, char* pcIpAddr, int port)
-{   
-    if (pstUserList == NULL || pcIpAddr == NULL) {
-        return NULL;
-    }
-    User stUserTmp;
-    User* pstUser = NULL;
-    strcpy(stUserTmp.acIpAddr, pcIpAddr);
-    stUserTmp.port = port;
-    if (g_pstIfUserList == NULL) {
-        pstUser = (User*)g_pstIfUserList->pfSearch(pstUserList, (void*)&stUserTmp);
-    }
-    return pstUser;
-}
 
 /* tcp connection */
 int Server_TcpListen(Server* pstServer, int port)
@@ -211,6 +248,7 @@ int Server_TcpListen(Server* pstServer, int port)
         SERVER_LOG("listen error");
         return ret;
     }
+    printf("%s\n", "server is listening");
     return SERVER_OK;
 }
 
@@ -223,9 +261,6 @@ int Server_Run(Server* pstServer)
         return SERVER_NULL;
     }
     if (pstServer->pstTPool == NULL) {
-        return SERVER_NULL;
-    }
-    if (pstServer->pstLock == NULL) {
         return SERVER_NULL;
     }
     if (g_pstIfUserList == NULL) {
@@ -251,6 +286,12 @@ int Server_Run(Server* pstServer)
             continue;
         }
         pthread_mutex_lock(pstServer->pstLock);
+        /* server shutdown */
+        if (pstServer->state == SERVER_SHUTDOWN) {
+            printf("%s\n", "shutdown");
+            pthread_mutex_unlock(pstServer->pstLock);
+            break;
+        }
         /* get peer info */
         ret = getpeername(reqFd, (struct sockaddr*)&stPeerAddr, &addrLen);
         if (ret < 0) {
@@ -261,6 +302,7 @@ int Server_Run(Server* pstServer)
         memset(acPeerIpAddr, 0, INET_ADDRSTRLEN);
         inet_ntop(AF_INET, &stPeerAddr.sin_addr, acPeerIpAddr, INET_ADDRSTRLEN);
         peerPort = ntohs(stPeerAddr.sin_port);
+        printf("ip:%s:%d join in group\n", acPeerIpAddr, peerPort);
         /* search ip and port */
         User* pstUser = NULL;
         pstUser = Server_SearchUser(pstServer->pstUserList, acPeerIpAddr, peerPort);
@@ -275,7 +317,10 @@ int Server_Run(Server* pstServer)
             }
         }
         /* add task to receive message */
-        (void)g_pstIfTPool->pfAddTask(pstServer->pstTPool, Server_Recv, (void*)pstServer);
+        Request* pstReq = (Request*)malloc(sizeof(Request));
+        pstReq->pstServer = pstServer;
+        pstReq->reqFd = reqFd;
+        g_pstIfTPool->pfAddTask(pstServer->pstTPool, Server_Recv, (void*)pstReq);
         pthread_mutex_unlock(pstServer->pstLock);
     }
     return SERVER_OK;
@@ -289,23 +334,19 @@ void* Server_Send(void* pvArg)
 
 void* Server_Recv(void* pvArg)
 {
-    Server* pstServer = (Server*)pvArg;
+    Request* pstReq = (Request*)pvArg;
+    Server* pstServer = pstReq->pstServer;
     int type = MESSAGE_REFLECT;
     int ret;
     char acMessage[MESSAGE_MAX_LEN];
-    /* timer */
-    signal(SIGALRM, Server_SetTimeOut);
-    struct itimerval stNewValue;
-    struct itimerval stOldValue;
-    stNewValue.it_value.tv_sec = 0;
-    stNewValue.it_value.tv_usec = 1;
-    stNewValue.it_interval.tv_sec = 0;
-    stNewValue.it_interval.tv_usec = 200000;
-    setitimer(ITIMER_REAL, &stNewValue, &stOldValue);
     while (1) {
+        memset(acMessage, 0, MESSAGE_MAX_LEN);
         /* recv message */
-        recv(pstServer->fd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
-        pthread_mutex_lock(pstServer->pstLock);
+        recv(pstReq->reqFd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
+        printf("recv: %s\n", acMessage);
+        if (strlen(acMessage) < 1) {
+            continue;
+        }
         /* message filter */
         if (pstServer->pfMessageFilter != NULL) {
             ret = pstServer->pfMessageFilter(acMessage);
@@ -318,15 +359,18 @@ void* Server_Recv(void* pvArg)
         if (type < 0) {
             type = MESSAGE_REFLECT; 
         } 
-        type = type % SERVER_REQUEST_METHOD_NUM;
+        type = type % REQUEST_METHOD_NUM;
         /* response */
+        pthread_mutex_lock(pstServer->pstLock);
         ret = g_pfRequestMethod[type](pstServer, acMessage);
         if (ret < 0) {
+            free(pstReq);
+            printf("%s\n", "logout");
             pthread_mutex_unlock(pstServer->pstLock);
             break;
         }
-        /* time out */
-        if (g_bTimeOutFlag == 1) {
+        /* server shutdown */
+        if (pstServer->state == SERVER_SHUTDOWN) {
             pthread_mutex_unlock(pstServer->pstLock);
             break;
         }
@@ -335,34 +379,18 @@ void* Server_Recv(void* pvArg)
     return NULL;
 }
 
-User* Server_SearchUserByMessage(Server* pstServer, char* pcMessage)
-{
-    int ret;
-    char acName[USER_NAME_LEN];
-    /* get user name */
-    ret = g_pstIfMessage->pfGetSrcName(pcMessage, acName);
-    if (ret != SERVER_OK) {
-        return NULL;
-    }
-    if (strlen(acName) > USER_NAME_LEN) {
-        return NULL;
-    }
-    /* search user */
-    return Server_SearchUserByName(pstServer->pstUserList, acName);
-}
-
 /* request method */
-int Server_Transfer(Server* pstServer, char* pcMessage)
+int Request_Transfer(Server* pstServer, char* pcMessage)
 {
     int ret;
     User* pstUser = NULL;
-    char acName[USER_NAME_LEN];
+    char acName[USER_NAMELEN];
     /* parse dst user */
     ret = g_pstIfMessage->pfGetDstName(pcMessage, acName);
     if (ret != SERVER_OK) {
         return ret;
     }
-    if (strlen(acName) > USER_NAME_LEN) {
+    if (strlen(acName) > USER_NAMELEN) {
         return SERVER_NO_USER;
     }
     /* search user */
@@ -372,14 +400,14 @@ int Server_Transfer(Server* pstServer, char* pcMessage)
     }
     /* check user state */
     if (pstUser->state != USER_ONLINE) {
-        return SERVER_INVALID_USERSTATE;
+        return SERVER_INVALID_USER;
     }
     /* send message */
     send(pstUser->fd, pcMessage, strlen(pcMessage), 0);
     return SERVER_OK;
 }
 
-int Server_Broadcast(Server* pstServer, char* pcMessage)
+int Request_Broadcast(Server* pstServer, char* pcMessage)
 {
     User* pstUser = NULL;
     Node *pstNode = pstServer->pstUserList->pstHead;
@@ -391,70 +419,88 @@ int Server_Broadcast(Server* pstServer, char* pcMessage)
     return SERVER_OK;
 }
 
-int Server_GetAllUser(Server* pstServer, char* pcMessage)
+int Request_GetAllUser(Server* pstServer, char* pcMessage)
 {
 
     return SERVER_OK;
 }
 
-int Server_Logout(Server* pstServer, char* pcMessage)
+int Request_Logout(Server* pstServer, char* pcMessage)
 {
     User* pstUser = NULL;
     char acOK[32] = "succeed to logout";
     /* search user */
-    pstUser = Server_SearchUserByMessage(pstServer, pcMessage);
+    pstUser = Server_SearchSrcUser(pstServer, pcMessage);
     if (pstUser == NULL) {
         return SERVER_NOT_FOUND;
     }
     /* set logout */
     pstUser->state = USER_LOGOUT;
-    close(pstUser->fd);
     /* responese */
     send(pstUser->fd, acOK, strlen(acOK), 0);
+    close(pstUser->fd);
     return -1;
 }
 
-int Server_KickOut(Server* pstServer, char* pcMessage)
+int Request_KickOut(Server* pstServer, char* pcMessage)
 {
-    User* pstUser = NULL;
+    User* pstSrcUser = NULL;
+    User* pstDstUser = NULL;
     char acOK[32] = "you have been kicked out";
-    /* search user */
-    pstUser = Server_SearchUserByMessage(pstServer, pcMessage);
-    if (pstUser == NULL) {
+    /* search src user */
+    pstSrcUser = Server_SearchSrcUser(pstServer, pcMessage);
+    if (pstSrcUser == NULL) {
+        return SERVER_NOT_FOUND;
+    }
+    /* check src user */
+    if (pstSrcUser->stat != USER_ADMIN) {
+        return SERVER_INVALID_USER;
+    }
+    /* search dst user */
+    pstDstUser = Server_SearchDstUser(pstServer, pcMessage);
+    if (pstDstUser == NULL) {
         return SERVER_NOT_FOUND;
     }
     /* set kickout */
-    pstUser->state = USER_KICKOUT;
-    close(pstUser->fd);
+    pstDstUser->state = USER_KICKOUT;
     /* responese */
-    send(pstUser->fd, acOK, strlen(acOK), 0);
-
+    send(pstDstUser->fd, acOK, strlen(acOK), 0);
+    close(pstDstUser->fd);
     return SERVER_OK;
 }
 
-int Server_BanTalk(Server* pstServer, char* pcMessage)
+int Request_BanTalk(Server* pstServer, char* pcMessage)
 {
-
-    User* pstUser = NULL;
-    char acOK[32] = "you have been banned to talk";
-    /* search user */
-    pstUser = Server_SearchUserByMessage(pstServer, pcMessage);
-    if (pstUser == NULL) {
+    User* pstSrcUser = NULL;
+    User* pstDstUser = NULL;
+    char acOK[32] = "you have been banned talking";
+    /* search src user */
+    pstSrcUser = Server_SearchSrcUser(pstServer, pcMessage);
+    if (pstSrcUser == NULL) {
+        return SERVER_NOT_FOUND;
+    }
+    /* check src user */
+    if (pstSrcUser->stat != USER_ADMIN) {
+        return SERVER_INVALID_USER;
+    }
+    /* search dst user */
+    pstDstUser = Server_SearchDstUser(pstServer, pcMessage);
+    if (pstDstUser == NULL) {
         return SERVER_NOT_FOUND;
     }
     /* set bantalk */
-    pstUser->state = USER_BANTALK;
+    pstDstUser->state = USER_BANTALK;
     /* responese */
-    send(pstUser->fd, acOK, strlen(acOK), 0);
+    send(pstDstUser->fd, acOK, strlen(acOK), 0);
     return SERVER_OK;
 }
 
-int Server_ApplyForAdministrator(Server* pstServer, char* pcMessage)
+int Request_ApplyForAdministrator(Server* pstServer, char* pcMessage)
 {
     User* pstUser = NULL;
-    char acOK[32] = "succeed to be administator";
+    char acOK[32] = "succeed to be an administator";
     /* search user */
-    pstUser = Server_SearchUserByMessage(pstServer, pcMessage);
+    pstUser = Server_SearchSrcUser(pstServer, pcMessage);
     if (pstUser == NULL) {
         return SERVER_NOT_FOUND;
     }
@@ -465,40 +511,30 @@ int Server_ApplyForAdministrator(Server* pstServer, char* pcMessage)
     return SERVER_OK;
 }
 
-int Server_Reflect(Server* pstServer, char* pcMessage)
+int Request_Reflect(Server* pstServer, char* pcMessage)
 {
-    int ret;
-    User* pstUser = NULL;
-    char acName[USER_NAME_LEN];
-    /* get user name */
-    ret = g_pstIfMessage->pfGetSrcName(pcMessage, acName);
-    if (ret != SERVER_OK) {
-        return SERVER_MESSAGE_ERR;
-    }
-    if (strlen(acName) > USER_NAME_LEN) {
-        return SERVER_MESSAGE_ERR;
-    }
-    /* search user */
-    pstUser = Server_SearchUserByName(pstServer->pstUserList, acName);
-    if (pstUser == NULL) {
-        return SERVER_NO_USER;
+    User* pstSrcUser = NULL;
+    /* search src user */
+    pstSrcUser = Server_SearchSrcUser(pstServer, pcMessage);
+    if (pstSrcUser == NULL) {
+        return SERVER_NOT_FOUND;
     }
     /* check user state */
-    if (pstUser->state != USER_ONLINE) {
+    if (pstSrcUser->state != USER_ONLINE) {
         return SERVER_USER_OFFLINE; 
     }
     /* send message */
-    send(pstUser->fd, pcMessage, strlen(pcMessage), 0);
+    send(pstSrcUser->fd, pcMessage, strlen(pcMessage), 0);
     return SERVER_OK;
 }
 
-int Server_Register(Server* pstServer, char* pcMessage)
+int Request_Register(Server* pstServer, char* pcMessage)
 {
     int ret;
     int port;
     User* pstUser = NULL;
     char acIpAddr[INET_ADDRSTRLEN];
-    char acName[USER_NAME_LEN];
+    char acName[USER_NAMELEN];
     char acOK[32] = "succeed to register";
     /* get user ip */
     ret = g_pstIfMessage->pfGetIpAddr(pcMessage, acIpAddr);
@@ -507,7 +543,7 @@ int Server_Register(Server* pstServer, char* pcMessage)
     }
     /* get user port */
     port = g_pstIfMessage->pfGetPort(pcMessage);
-    if (port < 8000) {
+    if (port < 0) {
         return SERVER_INVALID_PORT;
     }
     /* get user name */
@@ -515,7 +551,7 @@ int Server_Register(Server* pstServer, char* pcMessage)
     if (ret != SERVER_OK) {
         return SERVER_MESSAGE_ERR;
     }
-    if (strlen(acName) > USER_NAME_LEN) {
+    if (strlen(acName) > USER_NAMELEN) {
         return SERVER_MESSAGE_ERR;
     }
     /* search user */
@@ -530,4 +566,32 @@ int Server_Register(Server* pstServer, char* pcMessage)
     /* responese */
     send(pstUser->fd, acOK, strlen(acOK), 0);
     return SERVER_OK;
+}
+
+int Request_Shutdown(Server* pstServer, char* pcMessage)
+{
+    User* pstSrcUser = NULL;
+    User* pstUser = NULL;
+    char acOK[32] = "server is ready to shutdown";
+    /* search src user */
+    pstSrcUser = Server_SearchSrcUser(pstServer, pcMessage);
+    if (pstSrcUser == NULL) {
+        return SERVER_NOT_FOUND;
+    }
+    /* check src user */
+    if (pstSrcUser->stat != USER_ADMIN) {
+        return SERVER_INVALID_USER;
+    }
+    /* set the flag of shutdown  */
+    pstServer->state = SERVER_SHUTDOWN;
+    /* responese */
+    send(pstSrcUser->fd, acOK, strlen(acOK), 0);
+    /* close all connection */
+    Node *pstNode = pstServer->pstUserList->pstHead;
+    while (pstNode != NULL) {
+        pstUser = (User*)pstNode->pvInstance;
+        send(pstUser->fd, pcMessage, strlen(pcMessage), 0);
+        pstNode = pstNode->pstNext;
+    }
+    return -1;
 }

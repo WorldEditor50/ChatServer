@@ -5,8 +5,8 @@
 #include <string.h>
 
 #define USER_MAXBUFFERLEN  2048
-#define USER_IP_LEN        16
-#define USER_NAME_LEN      64
+#define USER_ADDRSTRLEN    16
+#define USER_NAMELEN       64
 #define USER_ONLINE        0
 #define USER_LEAVE         1
 #define USER_LOGOUT        2
@@ -30,8 +30,8 @@ typedef struct User {
     int state;
     int stat;
     int isRegistered;
-    char acIpAddr[USER_IP_LEN];
-    char acName[USER_NAME_LEN];
+    char acIpAddr[USER_ADDRSTRLEN];
+    char acName[USER_NAMELEN];
 } User;
 
 User* User_New(int fd, int port, int state, int stat, char* pcIpAddr, char* pcName);

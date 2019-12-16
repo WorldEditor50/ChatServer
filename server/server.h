@@ -17,13 +17,13 @@
 #include "../log/log.h"
 
 #define SERVER_LOGFILE "./server_log"
-#define SERVER_IP_LEN   16
-#define SERVER_NAME_LEN 64
-#define SERVER_REQUEST_METHOD_NUM 8
+#define SERVER_SHUTDOWN   0
+#define SERVER_RUNNING    1
 #define SERVER_LOG(message) do { \
     LOG_WRITE(SERVER_LOGFILE, message); \
 } while (0)
 
+#define REQUEST_METHOD_NUM 10
 typedef enum SERVER_ENUM {
     SERVER_OK,
     SERVER_ERR,
@@ -37,7 +37,7 @@ typedef enum SERVER_ENUM {
     SERVER_MESSAGE_ERR,
     SERVER_NO_USER,
     SERVER_USER_OFFLINE,
-    SERVER_INVALID_USERSTATE
+    SERVER_INVALID_USER
 } SERVER_ENUM;
 
 ListInterface* g_pstIfUserList;
@@ -50,9 +50,15 @@ typedef struct Server {
     ThreadPool* pstTPool;
     pthread_mutex_t* pstLock;
     int (*pfMessageFilter)(char* pcMessage);
+    int state;
 } Server;
+
+typedef struct Request {
+    Server* pstServer;
+    int reqFd;
+} Request;
 typedef int (*RequestMethod)(Server* pstServer, char* pcMessage);
-RequestMethod g_pfRequestMethod[SERVER_REQUEST_METHOD_NUM];
+RequestMethod g_pfRequestMethod[REQUEST_METHOD_NUM];
 /* memory */
 Server* Server_New();
 int Server_Delete(Server* pstServer);
@@ -72,12 +78,14 @@ void* Server_Recv(void* pvArg);
 /* message */
 int Server_RegisterMessageFilter(Server pstServer, int (*pfMessageFilter)(char* pcMessage));
 /* request method */
-int Server_Transfer(Server* pstServer, char* pcMessage);
-int Server_Broadcast(Server* pstServer, char* pcMessage);
-int Server_GetAllUser(Server* pstServer, char* pcMessage);
-int Server_Logout(Server* pstServer, char* pcMessage);
-int Server_KickOut(Server* pstServer, char* pcMessage);
-int Server_BanTalk(Server* pstServer, char* pcMessage);
-int Server_ApplyForAdministrator(Server* pstServer, char* pcMessage);
-int Server_Reflect(Server* pstServer, char* pcMessage);
+int Request_Transfer(Server* pstServer, char* pcMessage);
+int Request_Broadcast(Server* pstServer, char* pcMessage);
+int Request_GetAllUser(Server* pstServer, char* pcMessage);
+int Request_Logout(Server* pstServer, char* pcMessage);
+int Request_KickOut(Server* pstServer, char* pcMessage);
+int Request_BanTalk(Server* pstServer, char* pcMessage);
+int Request_ApplyForAdministrator(Server* pstServer, char* pcMessage);
+int Request_Reflect(Server* pstServer, char* pcMessage);
+int Request_Register(Server* pstServer, char* pcMessage);
+int Request_Shutdown(Server* pstServer, char* pcMessage);
 #endif // SERVER_H

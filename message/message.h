@@ -16,8 +16,9 @@
 #define MESSAGE_APPADMIN    6
 #define MESSAGE_REFLECT     7
 #define MESSAGE_REGISTER    8
+#define MESSAGE_SHUTDOWN    9
 
-#define MESSAGE_TYPE_NUM     9
+#define MESSAGE_TYPE_NUM     10
 #define MESSAGE_TYPE_LEN     32
 const char* g_pcMessageType[MESSAGE_TYPE_NUM];
 
@@ -48,6 +49,8 @@ type:6,name:tom, */
 type:7,name:tom, */
 /* register: 
 type:8,name:tom,ip:192.168.1.3,port:8011, */
+/* shutdown : 
+type:9,name:tom, */
 typedef struct MessageInterface {
     int (*pfCreateTransferMessage)(int type, char* pcSrcName, char* pcDstName, char* pcContent, char* pcMessage);
     int (*pfCreateBroadcastMessage)(int type, char* pcName, char* pcContent, char* pcMessage); 
