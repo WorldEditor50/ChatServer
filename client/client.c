@@ -137,6 +137,21 @@ int Client_TcpConnectByConfig(Client* pstClient)
     return Client_TcpConnect(pstClient, pstClient->acServerIpAddr, pstClient->serverPort);
 }
 
+void Client_ShowUsage()
+{
+    printf("usage :\n");
+    printf("TRANSFER -- send message to other user\n");
+    printf("BROADCAST -- send message to all user\n");
+    printf("ADMIN -- apply for administor\n");
+    printf("SHUTDOWN -- shutdown server\n");
+    printf("BANTALK -- ban talking\n");
+    printf("KICKOUT -- kick out\n");
+    printf("LOGOUT -- logout\n");
+    printf("exit -- logout and leave\n");
+    printf("usage -- show usage\n");
+    return;
+}
+
 int Client_Run(Client* pstClient)
 {
     if (pstClient == NULL) {
@@ -150,6 +165,8 @@ int Client_Run(Client* pstClient)
     }
     int ret;
     char acType[MESSAGE_TYPE_LEN];
+    /* show usage */
+    Client_ShowUsage();
     /* create thread to receive message */
     ret = pthread_create(&pstClient->recvTid, NULL, Client_RecvMessage, (void*)pstClient);
     if (ret < 0) {
@@ -167,6 +184,8 @@ int Client_Run(Client* pstClient)
             Client_SendMessage(pstClient, "LOGOUT");
             pstClient->state = CLIENT_SHUTDOWN;
             break;
+        } else if (strcmp(acType, "usage") == 0) {
+            Client_ShowUsage();
         }
         Client_SendMessage(pstClient, acType);
     }

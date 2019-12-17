@@ -41,9 +41,8 @@ typedef enum SERVER_ENUM {
     SERVER_INVALID_USER
 } SERVER_ENUM;
 
-ListInterface* g_pstIfUserList;
+ListInterface* g_pstIfList;
 ThreadPoolInterface* g_pstIfTPool;
-ThreadPoolInterface* g_pstIfConnectPool;
 MessageInterface* g_pstIfMessage;
 
 typedef struct Server Server;
@@ -53,6 +52,7 @@ typedef struct Request Request;
 struct Server {
     int fd;
     List* pstUserList;
+    List* pstReqMemPool;
     ThreadPool* pstTPool;
     ThreadPool* pstConnectPool;
     pthread_mutex_t* pstLock;
@@ -90,6 +90,8 @@ void* Server_Recv(void* pvArg);
 /* message */
 int Server_RegisterMessageFilter(Server pstServer, int (*pfMessageFilter)(char* pcMessage));
 /* request method */
+int Request_DeleteAdapter(void* pvInstance);
+Request* Request_New(List* pstReqMemPool);
 void* Request_Handler(void* pvArg);
 int Request_Transfer(Server* pstServer, char* pcMessage);
 int Request_Broadcast(Server* pstServer, char* pcMessage);

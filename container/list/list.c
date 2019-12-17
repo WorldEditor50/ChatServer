@@ -13,6 +13,7 @@ ListInterface g_stIfList = {
     List_DeleteByIndex,
     List_InsertByValue,
     List_DeleteByValue,
+    List_GetCount,
     List_Sort,
     List_Reverse,
     List_Traverse,
@@ -124,7 +125,7 @@ Node* List_GetFront(List* pstList)
 		return NULL;
 	}
     Node* pstNode = pstList->pstHead;
-    pstList->pstHead = pstNode->pstNext;
+    pstList->pstHead = pstList->pstHead->pstNext;
     pstList->pstHead->pstPre = NULL;
     pstNode->pstNext = NULL;
 	pstList->iNodeNum--;
@@ -212,7 +213,7 @@ int List_PopFront(List *pstList)
 		return LIST_SIZE_ERR;
 	}
 	Node *pstNode = pstList->pstHead;
-	pstList->pstHead = pstNode->pstNext;
+    pstList->pstHead = pstList->pstHead->pstNext;
 	pstList->pstHead->pstPre = NULL;
 	pstList->iNodeNum--;
 	List_DeleteNode(pstNode, pstList->pfObject_Delete);
@@ -375,6 +376,14 @@ int List_DeleteByValue(List *pstList, void* pvInstance)
 	pstList->iNodeNum--;
 	List_DeleteNode(pstNode, pstList->pfObject_Delete);
 	return LIST_OK;
+}
+/* get count */
+int List_GetCount(List* pstList)
+{
+   if (pstList == NULL) {
+       return -1;
+   }
+   return pstList->iNodeNum;
 }
 
 static void List_BubbleSort(List *pstList)

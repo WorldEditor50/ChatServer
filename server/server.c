@@ -1,8 +1,7 @@
 #include "server.h"
 /* register interface */
-ListInterface* g_pstIfUserList = &g_stIfList;
+ListInterface* g_pstIfList = &g_stIfList;
 ThreadPoolInterface* g_pstIfTPool = &g_stIfTPool;
-ThreadPoolInterface* g_pstIfConnectPool = &g_stIfTPool;
 MessageInterface* g_pstIfMessage = &g_stIfMessage;
 
 RequestMethod g_pfRequestMethod[REQUEST_METHOD_NUM] = {
@@ -105,7 +104,7 @@ User* Server_SearchDstUser(Server* pstServer, char* pcMessage)
 Server* Server_New()
 {
     /* check interface */
-    if (g_pstIfUserList == NULL || g_pstIfTPool == NULL ||
+    if (g_pstIfList == NULL || g_pstIfTPool == NULL ||
             g_pstIfMessage == NULL) {
         return NULL;
     }
@@ -118,18 +117,31 @@ Server* Server_New()
             break;
         }
         /* create user list */
-        pstServer->pstUserList = g_pstIfUserList->pfNew();
+        pstServer->pstUserList = g_pstIfList->pfNew();
         if (pstServer->pstUserList == NULL) {
             SERVER_LOG("fail to create user list");
             break;
         }
         /* register object: user */
-        g_pstIfUserList->pfRegisterObject(pstServer->pstUserList,
+        g_pstIfList->pfRegisterObject(pstServer->pstUserList,
                 User_NewAdapter,
                 User_DeleteAdapter,
                 User_CompareAdapter,
                 User_WriteAdapter,
                 User_ReadAdapter);
+        /* create request mem pool */
+        pstServer->pstReqMemPool = g_pstIfList->pfNew();
+        if (pstServer->pstReqMemPool == NULL) {
+            SERVER_LOG("fail to request create mem pool");
+            break;
+        }
+        /* register object: request */
+        g_pstIfList->pfRegisterObject(pstServer->pstReqMemPool,
+                NULL,
+                Request_DeleteAdapter,
+                NULL,
+                NULL,
+                NULL);
         /* create create pool */
         pstServer->pstTPool = g_pstIfTPool->pfNew(4, 16, 100);
         if (pstServer->pstTPool == NULL) {
@@ -137,7 +149,7 @@ Server* Server_New()
             break;
         }
         /* create connect pool */
-        pstServer->pstConnectPool = g_pstIfConnectPool->pfNew(4, 100, 100);
+        pstServer->pstConnectPool = g_pstIfTPool->pfNew(4, 100, 100);
         if (pstServer->pstConnectPool == NULL) {
             SERVER_LOG("fail to create thread pool");
             break;
@@ -146,6 +158,10 @@ Server* Server_New()
         pstServer->pstLock = &(pstServer->pstTPool->stLock);
         pstServer->pfMessageFilter = NULL;
         pstServer->state = SERVER_RUNNING;
+        /* empty log */
+        FILE* pstFile = NULL;
+        pstFile = fopen(SERVER_LOGFILE, "w");
+        fclose(pstFile);
         return pstServer;
     } while (0);
     Server_Delete(pstServer);
@@ -157,17 +173,17 @@ int Server_Delete(Server* pstServer)
     if (pstServer == NULL) {
         return SERVER_NULL;
     }
-    if (g_pstIfUserList != NULL && 
+    if (g_pstIfList != NULL && 
             pstServer->pstUserList != NULL) {
-        g_pstIfUserList->pfDelete(pstServer->pstUserList);
+        g_pstIfList->pfDelete(pstServer->pstUserList);
     }
     if (g_pstIfTPool != NULL && 
             pstServer->pstTPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstTPool);
     }
-    if (g_pstIfConnectPool != NULL && 
+    if (g_pstIfTPool != NULL && 
             pstServer->pstConnectPool != NULL) {
-        g_pstIfConnectPool->pfDelete(pstServer->pstConnectPool);
+        g_pstIfTPool->pfDelete(pstServer->pstConnectPool);
     }
     return SERVER_OK;
 }
@@ -195,7 +211,7 @@ int Server_Shutdown(Server* pstServer)
     close(pstServer->fd);
     /* shutdown thread pool */
     g_pstIfTPool->pfShutdown(pstServer->pstTPool);
-    g_pstIfConnectPool->pfShutdown(pstServer->pstConnectPool);
+    g_pstIfTPool->pfShutdown(pstServer->pstConnectPool);
     return SERVER_OK;
 }
 
@@ -216,7 +232,7 @@ int Server_AddUser(List* pstUserList, int fd, char* pcIpAddr, int port)
         return SERVER_NULL;
     }
     User* pstUser = NULL;
-    pstUser = (User*)g_pstIfUserList->pfNew();
+    pstUser = (User*)g_pstIfList->pfNew();
     if (pstUser == NULL) {
         Log_Write(SERVER_LOGFILE, "fail to create user");
         return SERVER_MEM_ERR;
@@ -226,7 +242,7 @@ int Server_AddUser(List* pstUserList, int fd, char* pcIpAddr, int port)
     pstUser->fd = fd;
     pstUser->state = USER_ONLINE;
     pstUser->stat = USER_NONADMIN;
-    int ret = g_pstIfUserList->pfPushBack(pstUserList, (void*)pstUser);
+    int ret = g_pstIfList->pfPushBack(pstUserList, (void*)pstUser);
     if (ret != SERVER_OK) {
         Log_Write(SERVER_LOGFILE, "fail to add user");
         return SERVER_ERR;
@@ -287,7 +303,7 @@ int Server_Run(Server* pstServer)
     if (pstServer->pstTPool == NULL) {
         return SERVER_NULL;
     }
-    if (g_pstIfUserList == NULL) {
+    if (g_pstIfList == NULL) {
         return SERVER_NULL;
     }
     if (g_pstIfTPool == NULL) {
@@ -353,7 +369,7 @@ int Server_Run(Server* pstServer)
         if (pstConn != NULL) {
             pstConn->pstServer = pstServer;
             pstConn->reqFd = reqFd;
-            g_pstIfConnectPool->pfAddTask(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
+            g_pstIfTPool->pfAddTask(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
         } else {
             Log_Write(SERVER_LOGFILE, "add task error");
         }
@@ -386,7 +402,9 @@ void* Server_Recv(void* pvArg)
                 type = MESSAGE_REFLECT; 
             } 
             /* add task to handle request */
-            Request* pstReq = (Request*)malloc(sizeof(Request));
+            pthread_mutex_lock(pstServer->pstLock);
+            Request* pstReq = Request_New(pstServer->pstReqMemPool);
+            pthread_mutex_unlock(pstServer->pstLock);
             if (pstReq != NULL) {
                 pstReq->pstServer = pstServer;
                 pstReq->type = type % REQUEST_METHOD_NUM;
@@ -419,8 +437,8 @@ void* Request_Handler(void* pvArg)
     /* response */
     pthread_mutex_lock(pstServer->pstLock);
     g_pfRequestMethod[pstReq->type](pstServer, pstReq->acMessage);
-    /* server shutdown */
-    free(pvArg);
+    /* recycle  */
+    g_pstIfList->pfPushBack(pstServer->pstReqMemPool, (void*)pstReq);
     pthread_mutex_unlock(pstServer->pstLock);
     return NULL;
 }
@@ -642,4 +660,26 @@ int Request_Shutdown(Server* pstServer, char* pcMessage)
     pthread_t tid;
     pthread_create(&tid, NULL, Server_AsyncClose, (void*)pstServer);
     return -1;
+}
+
+int Request_DeleteAdapter(void* pvInstance)
+{
+    free(pvInstance);
+    return SERVER_OK;
+}
+
+Request* Request_New(List* pstReqMemPool)
+{
+    if (pstReqMemPool == NULL) {
+        return NULL;
+    }
+    Request* pstReq = NULL;
+    if (g_pstIfList->pfGetCount(pstReqMemPool) < 2) {
+        pstReq = (Request*)malloc(sizeof(Request));
+    } else {
+        pstReq = (Request*)g_pstIfList->pfGetFront(pstReqMemPool);
+    }
+    memset(pstReq->acMessage, 0, MESSAGE_MAX_LEN);
+    pstReq->type = 0;
+    return pstReq;
 }

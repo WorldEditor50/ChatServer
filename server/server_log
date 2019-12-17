@@ -1,2 +1,0 @@
-file : server.c  function : Server_TcpListen  line : 206  message : bind error
-file : main.c  function : main  line : 17  message : fail to listen

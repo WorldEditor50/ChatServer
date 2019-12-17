@@ -17,7 +17,5 @@ int main()
         SERVER_LOG("fail to listen");
     }
     Server_Run(pstServer);
-    Server_Shutdown(pstServer);
-    Server_Delete(pstServer);
 	return 0;
 }

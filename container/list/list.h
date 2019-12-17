@@ -31,6 +31,7 @@ typedef struct List {
     struct Node *pstHead;
     struct Node *pstTail;
     int iNodeNum;
+    int maxNodeNum;
     void* (*pfObject_New)();
     int (*pfObject_Delete)(void* pvInstance);
     int (*pfObject_Compare)(void* pvInstance1, void* pvInstance2);
@@ -57,6 +58,7 @@ typedef struct ListInterface {
     int (*pfDeleteByIndex)(List *pstList, int index);
     int (*pfInsertByValue)(List *pstList, void* pvPreInstance, void* pvInstance);
     int (*pfDeleteByValue)(List *pstList, void* pvInstance);
+    int (*pfGetCount)(List* pstList);
     int (*pfSort)(List *pstList);
     int (*pfReverse)(List *pstList);
     int (*pfTraverse)(const List *pstList, int (*pfCallBack)(void* pvInstance, void* pvArg), void* pvArg);
@@ -107,6 +109,8 @@ int List_Traverse(const List *pstList, int (*pfCallBack)(void* pvInstance, void*
 int List_Save(List *pstList, const char* pcFileName);
 /* read from file */
 int List_Load(List *pstList, const char* pcFileName);
+/* get count */
+int List_GetCount(List* pstList);
 #ifdef __cplusplus
 }
 #endif// __cplusplus
