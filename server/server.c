@@ -2,6 +2,7 @@
 /* register interface */
 ListInterface* g_pstIfUserList = &g_stIfList;
 ThreadPoolInterface* g_pstIfTPool = &g_stIfTPool;
+ThreadPoolInterface* g_pstIfConnectPool = &g_stIfTPool;
 MessageInterface* g_pstIfMessage = &g_stIfMessage;
 
 RequestMethod g_pfRequestMethod[REQUEST_METHOD_NUM] = {
@@ -135,6 +136,12 @@ Server* Server_New()
             SERVER_LOG("fail to create thread pool");
             break;
         }
+        /* create connect pool */
+        pstServer->pstConnectPool = g_pstIfConnectPool->pfNew(4, 100, 100);
+        if (pstServer->pstConnectPool == NULL) {
+            SERVER_LOG("fail to create thread pool");
+            break;
+        }
         pstServer->fd = -1;
         pstServer->pstLock = &(pstServer->pstTPool->stLock);
         pstServer->pfMessageFilter = NULL;
@@ -158,6 +165,10 @@ int Server_Delete(Server* pstServer)
             pstServer->pstTPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstTPool);
     }
+    if (g_pstIfConnectPool != NULL && 
+            pstServer->pstConnectPool != NULL) {
+        g_pstIfConnectPool->pfDelete(pstServer->pstConnectPool);
+    }
     return SERVER_OK;
 }
 
@@ -171,6 +182,7 @@ int Server_Init(Server* pstServer)
 int Server_Shutdown(Server* pstServer)
 {
     /* close all fd */
+    pthread_mutex_lock(pstServer->pstLock);
     User* pstUser = NULL;
     Node *pstNode = pstServer->pstUserList->pstHead;
     while (pstNode != NULL) {
@@ -178,10 +190,22 @@ int Server_Shutdown(Server* pstServer)
         close(pstUser->fd);
         pstNode = pstNode->pstNext;
     }
+    pthread_mutex_unlock(pstServer->pstLock);
     printf("%s\n", "calling pool shutdown");
+    close(pstServer->fd);
     /* shutdown thread pool */
     g_pstIfTPool->pfShutdown(pstServer->pstTPool);
+    g_pstIfConnectPool->pfShutdown(pstServer->pstConnectPool);
     return SERVER_OK;
+}
+
+void* Server_AsyncClose(void* pvArg)
+{
+    Server* pstServer = (Server*)pvArg;
+    Server_Shutdown(pstServer);
+    Server_Delete(pstServer);
+    pthread_detach(pthread_self());
+    return NULL;
 }
 
 /* user */
@@ -273,6 +297,7 @@ int Server_Run(Server* pstServer)
         return SERVER_NULL;
     }
     int ret;
+    int flags;
     socklen_t addrLen = 0;
     struct sockaddr_in stAddr;
     struct sockaddr_in stPeerAddr;
@@ -285,13 +310,20 @@ int Server_Run(Server* pstServer)
             Log_Write(SERVER_LOGFILE, "accept error");
             continue;
         }
+
+        /* set socket nonblock */
+        flags = fcntl(reqFd, F_GETFL, 0);
+        fcntl(reqFd, F_SETFL, flags | O_NONBLOCK);
         pthread_mutex_lock(pstServer->pstLock);
         /* server shutdown */
-        if (pstServer->state == SERVER_SHUTDOWN) {
+#if 1
+        if (pstServer->state == SERVER_SHUTDOWN &&
+                (reqFd == EAGAIN || reqFd == EWOULDBLOCK)) {
             printf("%s\n", "shutdown");
             pthread_mutex_unlock(pstServer->pstLock);
             break;
         }
+#endif
         /* get peer info */
         ret = getpeername(reqFd, (struct sockaddr*)&stPeerAddr, &addrLen);
         if (ret < 0) {
@@ -317,10 +349,14 @@ int Server_Run(Server* pstServer)
             }
         }
         /* add task to receive message */
-        Request* pstReq = (Request*)malloc(sizeof(Request));
-        pstReq->pstServer = pstServer;
-        pstReq->reqFd = reqFd;
-        g_pstIfTPool->pfAddTask(pstServer->pstTPool, Server_Recv, (void*)pstReq);
+        Connect* pstConn = (Connect*)malloc(sizeof(Connect));
+        if (pstConn != NULL) {
+            pstConn->pstServer = pstServer;
+            pstConn->reqFd = reqFd;
+            g_pstIfConnectPool->pfAddTask(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
+        } else {
+            Log_Write(SERVER_LOGFILE, "add task error");
+        }
         pthread_mutex_unlock(pstServer->pstLock);
     }
     return SERVER_OK;
@@ -334,52 +370,61 @@ void* Server_Send(void* pvArg)
 
 void* Server_Recv(void* pvArg)
 {
-    Request* pstReq = (Request*)pvArg;
-    Server* pstServer = pstReq->pstServer;
-    int type = MESSAGE_REFLECT;
-    int ret;
+    Connect* pstConn = (Connect*)pvArg;
+    Server* pstServer = pstConn->pstServer;
     char acMessage[MESSAGE_MAX_LEN];
+    int type = MESSAGE_REFLECT;
     while (1) {
         memset(acMessage, 0, MESSAGE_MAX_LEN);
         /* recv message */
-        recv(pstReq->reqFd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
-        printf("recv: %s\n", acMessage);
-        if (strlen(acMessage) < 1) {
-            continue;
-        }
-        /* message filter */
-        if (pstServer->pfMessageFilter != NULL) {
-            ret = pstServer->pfMessageFilter(acMessage);
-            if (ret != SERVER_OK) {
+        recv(pstConn->reqFd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
+        if (strlen(acMessage) > 1) {
+            printf("recv: %s\n", acMessage);
+            /* get request type */
+            type = g_pstIfMessage->pfGetType(acMessage);
+            if (type < 0) {
+                type = MESSAGE_REFLECT; 
+            } 
+            /* add task to handle request */
+            Request* pstReq = (Request*)malloc(sizeof(Request));
+            if (pstReq != NULL) {
+                pstReq->pstServer = pstServer;
+                pstReq->type = type % REQUEST_METHOD_NUM;
+                strcpy(pstReq->acMessage, acMessage);
+                g_pstIfTPool->pfAddTaskWithLock(pstServer->pstTPool, Request_Handler, (void*)pstReq);
+            } else {
+                Log_Write(SERVER_LOGFILE, "add request error");
+            }
+            if (type == MESSAGE_LOGOUT || type == MESSAGE_SHUTDOWN) {
+                free(pvArg);
+                printf("%s\n", "logout");
                 break;
             }
+        } else {
+            sleep(1);
         }
-        /* get request type */
-        type = g_pstIfMessage->pfGetType(acMessage);
-        if (type < 0) {
-            type = MESSAGE_REFLECT; 
-        } 
-        type = type % REQUEST_METHOD_NUM;
-        /* response */
-        pthread_mutex_lock(pstServer->pstLock);
-        ret = g_pfRequestMethod[type](pstServer, acMessage);
-        if (ret < 0) {
-            free(pstReq);
-            printf("%s\n", "logout");
-            pthread_mutex_unlock(pstServer->pstLock);
-            break;
-        }
-        /* server shutdown */
-        if (pstServer->state == SERVER_SHUTDOWN) {
-            pthread_mutex_unlock(pstServer->pstLock);
-            break;
-        }
-        pthread_mutex_unlock(pstServer->pstLock);
     }
     return NULL;
 }
 
 /* request method */
+void* Request_Handler(void* pvArg)
+{
+    Request* pstReq = (Request*)pvArg;
+    Server* pstServer = pstReq->pstServer;
+    /* message filter */
+    if (pstServer->pfMessageFilter != NULL) {
+        pstServer->pfMessageFilter(pstReq->acMessage);
+    }
+    /* response */
+    pthread_mutex_lock(pstServer->pstLock);
+    g_pfRequestMethod[pstReq->type](pstServer, pstReq->acMessage);
+    /* server shutdown */
+    free(pvArg);
+    pthread_mutex_unlock(pstServer->pstLock);
+    return NULL;
+}
+
 int Request_Transfer(Server* pstServer, char* pcMessage)
 {
     int ret;
@@ -593,5 +638,8 @@ int Request_Shutdown(Server* pstServer, char* pcMessage)
         send(pstUser->fd, pcMessage, strlen(pcMessage), 0);
         pstNode = pstNode->pstNext;
     }
+    /* async shutdown */
+    pthread_t tid;
+    pthread_create(&tid, NULL, Server_AsyncClose, (void*)pstServer);
     return -1;
 }

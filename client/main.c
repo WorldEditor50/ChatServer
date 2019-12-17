@@ -18,7 +18,7 @@ int main()
         goto EXIT;    
     }
     /* connect server */
-    ret = Client_TcpConnect(pstClient, "127.0.0.1", 8022);
+    ret = Client_TcpConnectByConfig(pstClient);
     if (ret != CLIENT_OK) {
         goto EXIT;
     }

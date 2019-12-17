@@ -3,13 +3,11 @@ MessageInterface* g_pstIfMessage = &g_stIfMessage;
 /* configure */
 int Client_ReadConfig(Client* pstClient, char* pcFileName)
 {
-
     if (pstClient == NULL || pcFileName == NULL) {
         return CLIENT_NULL;
     }
     char acBuffer[128] = {0};
-    char* pcName = NULL;
-    char* pcPort = NULL;
+    char* pcOffset = NULL;
     int len = 0;
     /* ClientName:Tom */
     FILE* pstFile = NULL;
@@ -20,26 +18,50 @@ int Client_ReadConfig(Client* pstClient, char* pcFileName)
     }
     fgets(acBuffer, 128, pstFile);
     /* client name */
-    pcName = strstr(acBuffer, "ClientName:");
-    if (pcName == NULL) {
+    pcOffset = strstr(acBuffer, "ClientName:");
+    if (pcOffset == NULL) {
         fclose(pstFile);
         return CLIENT_NOT_FOUND;
     }
-    strcpy(pstClient->acName, pcName + strlen("ClientName:"));
+    strcpy(pstClient->acName, pcOffset + strlen("ClientName:"));
     len = strlen(pstClient->acName);
     pstClient->acName[len - 1] = '\0';
-    printf("read name: %s\n", pstClient->acName);
+    printf("client name: %s\n", pstClient->acName);
     /* client port */
     memset(acBuffer, 0, 128);
     fgets(acBuffer, 128, pstFile);
-    pcPort = strstr(acBuffer, "port:");
-    if (pcPort == NULL) {
+    pcOffset = strstr(acBuffer, "ClientPort:");
+    if (pcOffset == NULL) {
         fclose(pstFile);
         return CLIENT_NOT_FOUND;
     }
-    pstClient->port = atoi(pcPort + strlen("port:"));
-    printf("read port: %d\n", pstClient->port);
+    pstClient->port = atoi(pcOffset + strlen("ClientPort:"));
+    printf("client port: %d\n", pstClient->port);
+    /* server ip */
+    memset(acBuffer, 0, 128);
+    fgets(acBuffer, 128, pstFile);
+    pcOffset = strstr(acBuffer, "ServerIP:");
+    if (pcOffset == NULL) {
+        fclose(pstFile);
+        return CLIENT_NOT_FOUND;
+    }
+    strcpy(pstClient->acServerIpAddr, pcOffset + strlen("ServerIP:"));
+    len = strlen(pstClient->acServerIpAddr);
+    pstClient->acServerIpAddr[len - 1] = '\0';
+    printf("server ip: %s\n", pstClient->acServerIpAddr);
+    /* server port */
+    memset(acBuffer, 0, 128);
+    fgets(acBuffer, 128, pstFile);
+    pcOffset = strstr(acBuffer, "ServerPort:");
+    if (pcOffset == NULL) {
+        fclose(pstFile);
+        return CLIENT_NOT_FOUND;
+    }
+    pstClient->serverPort = atoi(pcOffset + strlen("ServerPort:"));
+    printf("server port: %d\n", pstClient->serverPort);
     fclose(pstFile);
+    /* client can be run */
+    pstClient->state = CLIENT_RUNNING;
     return CLIENT_OK;
 }
 
@@ -55,6 +77,10 @@ Client* Client_New()
     pstClient->fd = -1;
     pstClient->state = CLIENT_SHUTDOWN;
     pthread_mutex_init(&pstClient->stLock, NULL);
+    /* empty log */
+    FILE* pstFile = NULL;
+    pstFile = fopen(CLIENT_LOGFILE, "w");
+    fclose(pstFile);
     return pstClient;
 }
 
@@ -103,15 +129,12 @@ int Client_TcpConnect(Client* pstClient, char* pcIpAddr, int port)
         close(pstClient->fd);
         return CLIENT_CONNECT_ERR;
     }
-    /* create thread to receive message */
-    pstClient->state = CLIENT_RUNNING;
-    ret = pthread_create(&pstClient->recvTid, NULL, Client_RecvMessage, (void*)pstClient);
-    if (ret < 0) {
-        CLIENT_LOG("fail to create thread");
-        close(pstClient->fd);
-        return CLIENT_THREAD_ERR;
-    }
     return CLIENT_OK;
+}
+
+int Client_TcpConnectByConfig(Client* pstClient)
+{
+    return Client_TcpConnect(pstClient, pstClient->acServerIpAddr, pstClient->serverPort);
 }
 
 int Client_Run(Client* pstClient)
@@ -122,12 +145,19 @@ int Client_Run(Client* pstClient)
     if (strlen(pstClient->acName) < 1) {
         return CLIENT_NULL;
     }
+    if (pstClient->state != CLIENT_RUNNING) {
+        return CLIENT_ERR;
+    }
+    int ret;
     char acType[MESSAGE_TYPE_LEN];
-    char acMessage[MESSAGE_MAX_LEN] = {0};
+    /* create thread to receive message */
+    ret = pthread_create(&pstClient->recvTid, NULL, Client_RecvMessage, (void*)pstClient);
+    if (ret < 0) {
+        CLIENT_LOG("fail to create thread");
+        return CLIENT_THREAD_ERR;
+    }
     /* register and login */
     Client_SendMessage(pstClient, "REGISTER");
-    /* broadcast online */
-    g_pstIfMessage->pfCreateBroadcastMessage(MESSAGE_BROADCAST, pstClient->acName, "is online", acMessage);
     while (1) {
         memset(acType, 0, MESSAGE_TYPE_LEN);
         printf("%s", "send >");

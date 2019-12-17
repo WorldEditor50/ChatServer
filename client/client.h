@@ -14,16 +14,12 @@
 #include "../log/log.h"
 
 MessageInterface* g_pstIfMessage;
-#define CLIENT_DEBUG 1
-#if CLIENT_DEBUG
+#define CLIENT_LOGFILE "./client_log"
 #define CLIENT_LOG(message) do { \
     LOG_WRITE("./client_log", message); \
 } while (0)
-#else
-#define CLIENT_LOG(message)
-#endif
-#define CLIENT_NAME_LEN     64
-#define CLIENT_CONTENT_LEN  1024
+#define CLIENT_NAMELEN     64
+#define CLIENT_CONTENTLEN  1024
 #define CLIENT_RUNNING      0
 #define CLIENT_SHUTDOWN     1
 typedef enum CLIENT_ENUM {
@@ -42,7 +38,9 @@ typedef enum CLIENT_ENUM {
 typedef struct Client {
     int fd;
     int port;
-    char acName[CLIENT_NAME_LEN];
+    char acName[CLIENT_NAMELEN];
+    int serverPort;
+    char acServerIpAddr[INET_ADDRSTRLEN];
     char state;
     pthread_mutex_t stLock;
     pthread_t recvTid;
@@ -51,6 +49,7 @@ typedef struct Client {
 Client* Client_New();
 int Client_Delete(Client* pstClient);
 int Client_TcpConnect(Client* pstClient, char* pcIpAddr, int port);
+int Client_TcpConnectByConfig(Client* pstClient);
 int Client_Run(Client* pstClient);
 int Client_Close(Client* pstClient);
 /* configure */

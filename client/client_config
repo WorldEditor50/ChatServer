@@ -1,2 +1,4 @@
 ClientName:tom
-port:9988
+ClientPort:9988
+ServerIP:127.0.0.1
+ServerPort:8022

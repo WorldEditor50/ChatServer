@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "../container/list/list.h"
 #include "../threadpool/threadpool.h"
 #include "../message/message.h"
@@ -42,23 +43,34 @@ typedef enum SERVER_ENUM {
 
 ListInterface* g_pstIfUserList;
 ThreadPoolInterface* g_pstIfTPool;
+ThreadPoolInterface* g_pstIfConnectPool;
 MessageInterface* g_pstIfMessage;
 
-typedef struct Server {
+typedef struct Server Server;
+typedef struct Connect Connect;
+typedef struct Request Request;
+
+struct Server {
     int fd;
     List* pstUserList;
     ThreadPool* pstTPool;
+    ThreadPool* pstConnectPool;
     pthread_mutex_t* pstLock;
     int (*pfMessageFilter)(char* pcMessage);
     int state;
-} Server;
-
-typedef struct Request {
+};
+struct Connect {
     Server* pstServer;
     int reqFd;
-} Request;
+};
+struct Request {
+    Server* pstServer;
+    int type;
+    char acMessage[MESSAGE_MAX_LEN];
+};
 typedef int (*RequestMethod)(Server* pstServer, char* pcMessage);
 RequestMethod g_pfRequestMethod[REQUEST_METHOD_NUM];
+
 /* memory */
 Server* Server_New();
 int Server_Delete(Server* pstServer);
@@ -78,6 +90,7 @@ void* Server_Recv(void* pvArg);
 /* message */
 int Server_RegisterMessageFilter(Server pstServer, int (*pfMessageFilter)(char* pcMessage));
 /* request method */
+void* Request_Handler(void* pvArg);
 int Request_Transfer(Server* pstServer, char* pcMessage);
 int Request_Broadcast(Server* pstServer, char* pcMessage);
 int Request_GetAllUser(Server* pstServer, char* pcMessage);
