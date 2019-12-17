@@ -173,14 +173,22 @@ int Server_Delete(Server* pstServer)
     if (pstServer == NULL) {
         return SERVER_NULL;
     }
+    /* delete user list */
     if (g_pstIfList != NULL && 
             pstServer->pstUserList != NULL) {
         g_pstIfList->pfDelete(pstServer->pstUserList);
     }
+    /* delete memory pool */
+    if (g_pstIfList != NULL && 
+            pstServer->pstReqMemPool != NULL) {
+        g_pstIfList->pfDelete(pstServer->pstReqMemPool);
+    }
+    /* delete thread pool */
     if (g_pstIfTPool != NULL && 
             pstServer->pstTPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstTPool);
     }
+    /* delete connect pool */
     if (g_pstIfTPool != NULL && 
             pstServer->pstConnectPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstConnectPool);
