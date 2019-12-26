@@ -55,7 +55,7 @@ struct Server {
     List* pstReqMemPool;
     ThreadPool* pstTPool;
     ThreadPool* pstConnectPool;
-    pthread_mutex_t* pstLock;
+    pthread_mutex_t stLock;
     int (*pfMessageFilter)(char* pcMessage);
     int state;
 };

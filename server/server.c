@@ -154,8 +154,9 @@ Server* Server_New()
             SERVER_LOG("fail to create thread pool");
             break;
         }
+        /* create lock for server */
+        pthread_mutex_init(&pstServer->stLock, NULL);
         pstServer->fd = -1;
-        pstServer->pstLock = &(pstServer->pstTPool->stLock);
         pstServer->pfMessageFilter = NULL;
         pstServer->state = SERVER_RUNNING;
         /* empty log */
@@ -193,6 +194,11 @@ int Server_Delete(Server* pstServer)
             pstServer->pstConnectPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstConnectPool);
     }
+    /* destroy lock */
+    pthread_mutex_lock(&pstServer->stLock);
+    pthread_mutex_destroy(&pstServer->stLock);
+    /* free */
+    free(pstServer);
     return SERVER_OK;
 }
 
@@ -206,7 +212,7 @@ int Server_Init(Server* pstServer)
 int Server_Shutdown(Server* pstServer)
 {
     /* close all fd */
-    pthread_mutex_lock(pstServer->pstLock);
+    pthread_mutex_lock(&pstServer->stLock);
     User* pstUser = NULL;
     Node *pstNode = pstServer->pstUserList->pstHead;
     while (pstNode != NULL) {
@@ -214,7 +220,7 @@ int Server_Shutdown(Server* pstServer)
         close(pstUser->fd);
         pstNode = pstNode->pstNext;
     }
-    pthread_mutex_unlock(pstServer->pstLock);
+    pthread_mutex_unlock(&pstServer->stLock);
     printf("%s\n", "calling pool shutdown");
     close(pstServer->fd);
     /* shutdown thread pool */
@@ -228,6 +234,7 @@ void* Server_AsyncClose(void* pvArg)
     Server* pstServer = (Server*)pvArg;
     Server_Shutdown(pstServer);
     Server_Delete(pstServer);
+    printf("%s\n", "delete completly");
     pthread_detach(pthread_self());
     return NULL;
 }
@@ -338,13 +345,13 @@ int Server_Run(Server* pstServer)
         /* set socket nonblock */
         flags = fcntl(reqFd, F_GETFL, 0);
         fcntl(reqFd, F_SETFL, flags | O_NONBLOCK);
-        pthread_mutex_lock(pstServer->pstLock);
+        pthread_mutex_lock(&pstServer->stLock);
         /* server shutdown */
 #if 1
         if (pstServer->state == SERVER_SHUTDOWN &&
                 (reqFd == EAGAIN || reqFd == EWOULDBLOCK)) {
             printf("%s\n", "shutdown");
-            pthread_mutex_unlock(pstServer->pstLock);
+            pthread_mutex_unlock(&pstServer->stLock);
             break;
         }
 #endif
@@ -352,7 +359,7 @@ int Server_Run(Server* pstServer)
         ret = getpeername(reqFd, (struct sockaddr*)&stPeerAddr, &addrLen);
         if (ret < 0) {
             Log_Write(SERVER_LOGFILE, "getpeername error");
-            pthread_mutex_unlock(pstServer->pstLock);
+            pthread_mutex_unlock(&pstServer->stLock);
             continue;
         }
         memset(acPeerIpAddr, 0, INET_ADDRSTRLEN);
@@ -377,11 +384,11 @@ int Server_Run(Server* pstServer)
         if (pstConn != NULL) {
             pstConn->pstServer = pstServer;
             pstConn->reqFd = reqFd;
-            g_pstIfTPool->pfAddTask(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
+            g_pstIfTPool->pfAddTaskWithLock(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
         } else {
             Log_Write(SERVER_LOGFILE, "add task error");
         }
-        pthread_mutex_unlock(pstServer->pstLock);
+        pthread_mutex_unlock(&pstServer->stLock);
     }
     return SERVER_OK;
 }
@@ -410,9 +417,9 @@ void* Server_Recv(void* pvArg)
                 type = MESSAGE_REFLECT; 
             } 
             /* add task to handle request */
-            pthread_mutex_lock(pstServer->pstLock);
+            pthread_mutex_lock(&pstServer->stLock);
             Request* pstReq = Request_New(pstServer->pstReqMemPool);
-            pthread_mutex_unlock(pstServer->pstLock);
+            pthread_mutex_unlock(&pstServer->stLock);
             if (pstReq != NULL) {
                 pstReq->pstServer = pstServer;
                 pstReq->type = type % REQUEST_METHOD_NUM;
@@ -443,11 +450,11 @@ void* Request_Handler(void* pvArg)
         pstServer->pfMessageFilter(pstReq->acMessage);
     }
     /* response */
-    pthread_mutex_lock(pstServer->pstLock);
+    pthread_mutex_lock(&pstServer->stLock);
     g_pfRequestMethod[pstReq->type](pstServer, pstReq->acMessage);
     /* recycle  */
     g_pstIfList->pfPushBack(pstServer->pstReqMemPool, (void*)pstReq);
-    pthread_mutex_unlock(pstServer->pstLock);
+    pthread_mutex_unlock(&pstServer->stLock);
     return NULL;
 }
 
