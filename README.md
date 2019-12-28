@@ -38,6 +38,34 @@ client
 |request type|src name|dst name|content|
 +------------+--------+--------+-------+
 ```
-## 3. 总结
+- 操作报文
+```
++------------+--------+--------+
+|request type|src name|dst name|
++------------+--------+--------+
+```
+## 3. 客户端指令
+- REGISTER
+注册用户
+- REFLECT
+消息回射
+- TRANSFER
+消息转发
+- BROADCAST
+消息广播
+- GETALLUSER
+获取所有用户名
+- LOGOUT
+登出
+- ADMIN
+升级为管理员
+- KICKOUT
+剔除用户
+- BANTALK
+禁言
+- SHUTDOWN
+关闭服务器
+## 4. 总结
     不想再造轮子了=_=
-
+    1. 多个线程读取一个不存在写操作的共享资源不必加锁,存在写操作必须加锁
+    2. 聊天服务器可以扩展为多进程或者多机器之间的交互程序 
