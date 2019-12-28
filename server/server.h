@@ -46,7 +46,6 @@ ThreadPoolInterface* g_pstIfTPool;
 MessageInterface* g_pstIfMessage;
 
 typedef struct Server Server;
-typedef struct Connect Connect;
 typedef struct Request Request;
 
 struct Server {
@@ -54,14 +53,10 @@ struct Server {
     List* pstUserList;
     List* pstReqMemPool;
     ThreadPool* pstTPool;
-    ThreadPool* pstConnectPool;
     pthread_mutex_t stLock;
+    pthread_t recvTid;
     int (*pfMessageFilter)(char* pcMessage);
     int state;
-};
-struct Connect {
-    Server* pstServer;
-    int reqFd;
 };
 struct Request {
     Server* pstServer;
@@ -86,12 +81,12 @@ int Server_TcpListen(Server* pstServer, int port);
 int Server_SearchFD(Server* pstServer);
 int Server_Run(Server* pstServer);
 void* Server_Send(void* pvArg);
-void* Server_Recv(void* pvArg);
+void* Server_RecvAll(void* pvArg);
 /* message */
 int Server_RegisterMessageFilter(Server pstServer, int (*pfMessageFilter)(char* pcMessage));
 /* request method */
 int Request_DeleteAdapter(void* pvInstance);
-Request* Request_New(List* pstReqMemPool);
+Node* Request_New(List* pstReqMemPool);
 void* Request_Handler(void* pvArg);
 int Request_Transfer(Server* pstServer, char* pcMessage);
 int Request_Broadcast(Server* pstServer, char* pcMessage);

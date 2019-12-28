@@ -4,7 +4,9 @@ ListInterface g_stIfList = {
     List_RegisterObject,
     List_Delete,
     List_Search,
+    List_NewNode,
     List_GetFront,
+    List_AddNodeToBack,
     List_PushBack,
     List_PopBack,
     List_PushFront,
@@ -121,17 +123,36 @@ Node *List_Search(const List *pstList, void *pvInstance)
 Node* List_GetFront(List* pstList)
 {
 	if (pstList == NULL || pstList->pstHead == NULL) {
-		LIST_MESSAGE("empty pointer");
 		return NULL;
 	}
     Node* pstNode = pstList->pstHead;
     pstList->pstHead = pstList->pstHead->pstNext;
-    pstList->pstHead->pstPre = NULL;
+    if (pstList->pstHead != NULL) {
+        pstList->pstHead->pstPre = NULL;
+    }
     pstNode->pstNext = NULL;
 	pstList->iNodeNum--;
     return pstNode;
 }
-
+/* add node */
+int List_AddNodeToBack(List* pstList, Node* pstNode)
+{
+	if (pstList == NULL || pstNode == NULL) {
+		LIST_MESSAGE("empty pointer");
+		return LIST_NULL;
+	}
+	if (pstList->iNodeNum == 0) {
+		pstList->pstHead = pstNode;
+		pstList->pstTail = pstList->pstHead;
+	} else {
+		pstList->pstTail->pstNext = pstNode;
+		pstNode->pstPre = pstList->pstTail;
+		pstList->pstTail = pstNode;
+	}
+	pstList->iNodeNum++;
+	return LIST_OK;
+    
+}
 /* push back */
 int List_PushBack(List *pstList, void* pvInstance)
 {

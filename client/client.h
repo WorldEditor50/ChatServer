@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <fcntl.h>
 #include "../message/message.h"
 #include "../log/log.h"
 
@@ -22,6 +23,7 @@ MessageInterface* g_pstIfMessage;
 #define CLIENT_CONTENTLEN  1024
 #define CLIENT_RUNNING      0
 #define CLIENT_SHUTDOWN     1
+#define CLIENT_LOGOUT       2
 typedef enum CLIENT_ENUM {
     CLIENT_OK,					
     CLIENT_ERR,				

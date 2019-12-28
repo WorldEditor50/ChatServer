@@ -76,6 +76,7 @@ Client* Client_New()
     }
     pstClient->fd = -1;
     pstClient->state = CLIENT_SHUTDOWN;
+    /* mutex lock */
     pthread_mutex_init(&pstClient->stLock, NULL);
     /* empty log */
     FILE* pstFile = NULL;
@@ -167,14 +168,17 @@ int Client_Run(Client* pstClient)
     char acType[MESSAGE_TYPE_LEN];
     /* show usage */
     Client_ShowUsage();
+    /* start recieve message */
+    pstClient->state = CLIENT_RUNNING;
     /* create thread to receive message */
     ret = pthread_create(&pstClient->recvTid, NULL, Client_RecvMessage, (void*)pstClient);
     if (ret < 0) {
         CLIENT_LOG("fail to create thread");
         return CLIENT_THREAD_ERR;
     }
-    /* register and login */
+    /* show usage */
     Client_SendMessage(pstClient, "REGISTER");
+    /* register and login */
     while (1) {
         memset(acType, 0, MESSAGE_TYPE_LEN);
         printf("%s", "send >");
@@ -182,12 +186,21 @@ int Client_Run(Client* pstClient)
         if (strcmp(acType, "exit") == 0) {
             /* logout */
             Client_SendMessage(pstClient, "LOGOUT");
+            pthread_mutex_lock(&pstClient->stLock);
             pstClient->state = CLIENT_SHUTDOWN;
+            pthread_mutex_unlock(&pstClient->stLock);
             break;
         } else if (strcmp(acType, "usage") == 0) {
             Client_ShowUsage();
         }
         Client_SendMessage(pstClient, acType);
+        /* exit */
+        pthread_mutex_lock(&pstClient->stLock);
+        if (pstClient->state == CLIENT_SHUTDOWN) {
+            pthread_mutex_unlock(&pstClient->stLock);
+            break;
+        }
+        pthread_mutex_unlock(&pstClient->stLock);
     }
     return CLIENT_OK;
 }
@@ -276,23 +289,28 @@ void* Client_RecvMessage(void* pvArg)
     Client* pstClient = (Client*)pvArg;
     char acMessage[MESSAGE_MAX_LEN];
     int type;
+    ssize_t len;
     while (1) {
         memset(acMessage, 0, MESSAGE_MAX_LEN);
-        recv(pstClient->fd, acMessage, MESSAGE_MAX_LEN, 0);
-        printf("\nrecv message: %s\n", acMessage);
-        printf("%s", "send >");
-        /* stop reveiving message */
-        pthread_mutex_lock(&pstClient->stLock);
-        type = g_pstIfMessage->pfGetType(acMessage);
-        if (type == MESSAGE_SHUTDOWN) {
-            Client_SendMessage(pstClient, "LOGOUT");
-            pstClient->state = CLIENT_SHUTDOWN;
-        }
-        if (pstClient->state == CLIENT_SHUTDOWN) {
+        len = recv(pstClient->fd, acMessage, MESSAGE_MAX_LEN, 0);
+        if (len > 0) {
+            pthread_mutex_lock(&pstClient->stLock);
+            printf("\nrecv message: %s\n", acMessage);
+            /* stop reveiving message */
+            type = g_pstIfMessage->pfGetType(acMessage);
+            if (type == MESSAGE_SHUTDOWN) {
+                Client_SendMessage(pstClient, "LOGOUT");
+                pstClient->state = CLIENT_SHUTDOWN;
+            }
+            if (type == MESSAGE_LOGOUT) {
+                pstClient->state = CLIENT_LOGOUT;
+            }
+            if (pstClient->state == CLIENT_SHUTDOWN) {
+                pthread_mutex_unlock(&pstClient->stLock);
+                break;
+            }
             pthread_mutex_unlock(&pstClient->stLock);
-            break;
         }
-        pthread_mutex_unlock(&pstClient->stLock);
     }
     return NULL;
 }

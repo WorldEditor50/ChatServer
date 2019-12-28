@@ -49,7 +49,9 @@ typedef struct ListInterface {
             int (*pfObject_Read)(FILE* pstFile, void* pvInstance));
     int (*pfDelete)(List *pstList);
     Node* (*pfSearch)(const List *pstList, void *pvInstance);
+    Node* (*pfNewNode)(void* pvInstance);
     Node* (*pfGetFront)(List* pstList);
+    int (*pfAddNodeToBack)(List* pstList, Node* pstNode);
     int (*pfPushBack)(List *pstList, void* pvInstance);
     int (*pfPopBack)(List *pstList);
     int (*pfPushFront)(List *pstList, void* pvInstance);
@@ -70,6 +72,8 @@ ListInterface g_stIfList;
 
 /* new List */
 List* List_New();
+/* new node */
+Node* List_NewNode(void* pvInstance);
 /* register object */
 int List_RegisterObject(List* pstList,
         void* (*pfObject_New)(),
@@ -83,6 +87,8 @@ int List_Delete(List *pstList);
 Node* List_Search(const List *pstList, void *pvInstance);
 /* get */
 Node* List_GetFront(List* pstList);
+/* add node */
+int List_AddNodeToBack(List* pstList, Node* pstNode);
 /* push back */
 int List_PushBack(List *pstList, void* pvInstance);
 /* pop back */

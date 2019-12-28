@@ -142,20 +142,22 @@ Server* Server_New()
                 NULL,
                 NULL,
                 NULL);
-        /* create create pool */
+        /* create lock for server */
+        int ret = pthread_mutex_init(&pstServer->stLock, NULL);
+        if (ret < 0) {
+            break;
+        }
+        /* create thread pool to handle task */
         pstServer->pstTPool = g_pstIfTPool->pfNew(4, 16, 100);
         if (pstServer->pstTPool == NULL) {
             SERVER_LOG("fail to create thread pool");
             break;
         }
-        /* create connect pool */
-        pstServer->pstConnectPool = g_pstIfTPool->pfNew(4, 100, 100);
-        if (pstServer->pstConnectPool == NULL) {
-            SERVER_LOG("fail to create thread pool");
+        /* create thread to recieve message */
+        ret = pthread_create(&(pstServer->recvTid), NULL, Server_RecvAll, (void*)pstServer);
+        if (ret < 0) {
             break;
         }
-        /* create lock for server */
-        pthread_mutex_init(&pstServer->stLock, NULL);
         pstServer->fd = -1;
         pstServer->pfMessageFilter = NULL;
         pstServer->state = SERVER_RUNNING;
@@ -179,26 +181,26 @@ int Server_Delete(Server* pstServer)
             pstServer->pstUserList != NULL) {
         g_pstIfList->pfDelete(pstServer->pstUserList);
     }
+    printf("%s\n", "delete user list done");
     /* delete memory pool */
     if (g_pstIfList != NULL && 
             pstServer->pstReqMemPool != NULL) {
         g_pstIfList->pfDelete(pstServer->pstReqMemPool);
     }
+    printf("%s\n", "delete mem pool done");
     /* delete thread pool */
     if (g_pstIfTPool != NULL && 
             pstServer->pstTPool != NULL) {
         g_pstIfTPool->pfDelete(pstServer->pstTPool);
     }
-    /* delete connect pool */
-    if (g_pstIfTPool != NULL && 
-            pstServer->pstConnectPool != NULL) {
-        g_pstIfTPool->pfDelete(pstServer->pstConnectPool);
-    }
+    printf("%s\n", "delete threadpool done");
     /* destroy lock */
     pthread_mutex_lock(&pstServer->stLock);
     pthread_mutex_destroy(&pstServer->stLock);
-    /* free */
+    printf("%s\n", "delete mutex lock done");
+    /* free all */
     free(pstServer);
+    printf("%s\n", "complete");
     return SERVER_OK;
 }
 
@@ -225,7 +227,6 @@ int Server_Shutdown(Server* pstServer)
     close(pstServer->fd);
     /* shutdown thread pool */
     g_pstIfTPool->pfShutdown(pstServer->pstTPool);
-    g_pstIfTPool->pfShutdown(pstServer->pstConnectPool);
     return SERVER_OK;
 }
 
@@ -341,20 +342,10 @@ int Server_Run(Server* pstServer)
             Log_Write(SERVER_LOGFILE, "accept error");
             continue;
         }
-
+        pthread_mutex_lock(&pstServer->stLock);
         /* set socket nonblock */
         flags = fcntl(reqFd, F_GETFL, 0);
         fcntl(reqFd, F_SETFL, flags | O_NONBLOCK);
-        pthread_mutex_lock(&pstServer->stLock);
-        /* server shutdown */
-#if 1
-        if (pstServer->state == SERVER_SHUTDOWN &&
-                (reqFd == EAGAIN || reqFd == EWOULDBLOCK)) {
-            printf("%s\n", "shutdown");
-            pthread_mutex_unlock(&pstServer->stLock);
-            break;
-        }
-#endif
         /* get peer info */
         ret = getpeername(reqFd, (struct sockaddr*)&stPeerAddr, &addrLen);
         if (ret < 0) {
@@ -379,15 +370,6 @@ int Server_Run(Server* pstServer)
                 Log_Write(SERVER_LOGFILE, "add user error");
             }
         }
-        /* add task to receive message */
-        Connect* pstConn = (Connect*)malloc(sizeof(Connect));
-        if (pstConn != NULL) {
-            pstConn->pstServer = pstServer;
-            pstConn->reqFd = reqFd;
-            g_pstIfTPool->pfAddTaskWithLock(pstServer->pstConnectPool, Server_Recv, (void*)pstConn);
-        } else {
-            Log_Write(SERVER_LOGFILE, "add task error");
-        }
         pthread_mutex_unlock(&pstServer->stLock);
     }
     return SERVER_OK;
@@ -399,51 +381,59 @@ void* Server_Send(void* pvArg)
     return NULL;
 }
 
-void* Server_Recv(void* pvArg)
+void* Server_RecvAll(void* pvArg)
 {
-    Connect* pstConn = (Connect*)pvArg;
-    Server* pstServer = pstConn->pstServer;
+    Server* pstServer = (Server*)pvArg;
     char acMessage[MESSAGE_MAX_LEN];
     int type = MESSAGE_REFLECT;
+    ssize_t len;
+    User* pstUser = NULL;
+    Node* pstNode = NULL;
     while (1) {
-        memset(acMessage, 0, MESSAGE_MAX_LEN);
-        /* recv message */
-        recv(pstConn->reqFd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
-        if (strlen(acMessage) > 1) {
-            printf("recv: %s\n", acMessage);
-            /* get request type */
-            type = g_pstIfMessage->pfGetType(acMessage);
-            if (type < 0) {
-                type = MESSAGE_REFLECT; 
-            } 
-            /* add task to handle request */
-            pthread_mutex_lock(&pstServer->stLock);
-            Request* pstReq = Request_New(pstServer->pstReqMemPool);
+        pthread_mutex_lock(&pstServer->stLock);
+        if (pstServer->state == SERVER_SHUTDOWN) {
             pthread_mutex_unlock(&pstServer->stLock);
-            if (pstReq != NULL) {
-                pstReq->pstServer = pstServer;
-                pstReq->type = type % REQUEST_METHOD_NUM;
-                strcpy(pstReq->acMessage, acMessage);
-                g_pstIfTPool->pfAddTaskWithLock(pstServer->pstTPool, Request_Handler, (void*)pstReq);
-            } else {
-                Log_Write(SERVER_LOGFILE, "add request error");
-            }
-            if (type == MESSAGE_LOGOUT || type == MESSAGE_SHUTDOWN) {
-                free(pvArg);
-                printf("%s\n", "logout");
-                break;
-            }
-        } else {
-            sleep(1);
+            break;
         }
+        /* recv message */
+        pstNode = pstServer->pstUserList->pstHead;
+        while (pstNode != NULL) {
+            pstUser = (User*)pstNode->pvInstance;
+            memset(acMessage, 0, MESSAGE_MAX_LEN);
+            len = recv(pstUser->fd, (void*)acMessage, MESSAGE_MAX_LEN, 0);
+            if (len > 0) {
+                printf("recv: %s\n", acMessage);
+                /* get request type */
+                type = g_pstIfMessage->pfGetType(acMessage);
+                if (type < 0) {
+                    type = MESSAGE_REFLECT; 
+                } 
+                /* add task to handle request */
+                Node* pstNode = Request_New(pstServer->pstReqMemPool);
+                if (pstNode != NULL) {
+                    Request* pstReq = (Request*)pstNode->pvInstance;
+                    pstReq->pstServer = pstServer;
+                    pstReq->type = type % REQUEST_METHOD_NUM;
+                    memset(pstReq->acMessage, 0, MESSAGE_MAX_LEN);
+                    strcpy(pstReq->acMessage, acMessage);
+                    g_pstIfTPool->pfAddTaskWithLock(pstServer->pstTPool, Request_Handler, (void*)pstNode);
+                } else {
+                    Log_Write(SERVER_LOGFILE, "add request error");
+                }
+            }
+            pstNode = pstNode->pstNext;
+        }
+        pthread_mutex_unlock(&pstServer->stLock);
     }
+    pthread_detach(pthread_self());
     return NULL;
 }
 
 /* request method */
 void* Request_Handler(void* pvArg)
 {
-    Request* pstReq = (Request*)pvArg;
+    Node* pstNode = (Node*)pvArg;
+    Request* pstReq = (Request*)pstNode->pvInstance;
     Server* pstServer = pstReq->pstServer;
     /* message filter */
     if (pstServer->pfMessageFilter != NULL) {
@@ -453,26 +443,16 @@ void* Request_Handler(void* pvArg)
     pthread_mutex_lock(&pstServer->stLock);
     g_pfRequestMethod[pstReq->type](pstServer, pstReq->acMessage);
     /* recycle  */
-    g_pstIfList->pfPushBack(pstServer->pstReqMemPool, (void*)pstReq);
+    g_pstIfList->pfAddNodeToBack(pstServer->pstReqMemPool, pstNode);
     pthread_mutex_unlock(&pstServer->stLock);
     return NULL;
 }
 
 int Request_Transfer(Server* pstServer, char* pcMessage)
 {
-    int ret;
     User* pstUser = NULL;
-    char acName[USER_NAMELEN];
-    /* parse dst user */
-    ret = g_pstIfMessage->pfGetDstName(pcMessage, acName);
-    if (ret != SERVER_OK) {
-        return ret;
-    }
-    if (strlen(acName) > USER_NAMELEN) {
-        return SERVER_NO_USER;
-    }
-    /* search user */
-    pstUser = Server_SearchUserByName(pstServer->pstUserList, acName);
+    /* search dst user */
+    pstUser = Server_SearchDstUser(pstServer, pcMessage);
     if (pstUser == NULL) {
         return SERVER_NOT_FOUND;
     }
@@ -499,14 +479,27 @@ int Request_Broadcast(Server* pstServer, char* pcMessage)
 
 int Request_GetAllUser(Server* pstServer, char* pcMessage)
 {
-
+    User* pstUser = NULL;
+    User* pstSrcUser = NULL;
+    Node *pstNode = pstServer->pstUserList->pstHead;
+    /* search src user */
+    pstSrcUser = Server_SearchSrcUser(pstServer, pcMessage);
+    if (pstSrcUser == NULL) {
+        return SERVER_NOT_FOUND;
+    }
+    /* send user name */
+    while (pstNode != NULL) {
+        pstUser = (User*)pstNode->pvInstance;
+        send(pstSrcUser->fd, pstUser->acName, strlen(pstUser->acName), 0);
+        pstNode = pstNode->pstNext;
+    }
     return SERVER_OK;
 }
 
 int Request_Logout(Server* pstServer, char* pcMessage)
 {
     User* pstUser = NULL;
-    char acOK[32] = "succeed to logout";
+    char acOK[32] = "logout";
     /* search user */
     pstUser = Server_SearchSrcUser(pstServer, pcMessage);
     if (pstUser == NULL) {
@@ -683,18 +676,23 @@ int Request_DeleteAdapter(void* pvInstance)
     return SERVER_OK;
 }
 
-Request* Request_New(List* pstReqMemPool)
+Node* Request_New(List* pstReqMemPool)
 {
     if (pstReqMemPool == NULL) {
         return NULL;
     }
     Request* pstReq = NULL;
-    if (g_pstIfList->pfGetCount(pstReqMemPool) < 2) {
+    Node* pstNode = NULL;
+    pstNode = g_pstIfList->pfGetFront(pstReqMemPool); 
+    if (pstNode == NULL) {
         pstReq = (Request*)malloc(sizeof(Request));
-    } else {
-        pstReq = (Request*)g_pstIfList->pfGetFront(pstReqMemPool);
+        if (pstReq == NULL) {
+            return NULL;
+        }
+        pstNode = g_pstIfList->pfNewNode((void*)pstReq);
+        if (pstNode == NULL) {
+            return NULL;
+        }
     }
-    memset(pstReq->acMessage, 0, MESSAGE_MAX_LEN);
-    pstReq->type = 0;
-    return pstReq;
+    return pstNode;
 }
